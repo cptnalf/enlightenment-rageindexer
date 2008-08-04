@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <time.h>
 
 typedef struct _Database Database;
 struct _Database
@@ -58,6 +59,8 @@ int main(int argc, char** argv)
 			Evas_List* list;
 			char* newfile = 0;
 			Volume_Item* item;
+			time_t start_time, end_time;
+			start_time = time(0);
 			
 			newfile = gen_file();
 			while(newfile)
@@ -149,8 +152,12 @@ int main(int argc, char** argv)
 					newfile = gen_file();
 				}
 			
+			end_time = time(0);
+			printf("%ld\n", end_time - start_time);
+			start_time = time(0);
 			list = database_get_files(db, 0);
-			
+			end_time = time(0);
+			printf ("%ld\n", end_time - start_time);
 			item = 0;
  			while(list) 
 				{
@@ -159,7 +166,8 @@ int main(int argc, char** argv)
 					
 					if (item)
 						{
-							printf("%s;%s;%s;\n", item->path, item->name, item->genre);
+							//printf("%s;%s;%s;\n", item->path, item->name, item->genre);
+							printf (".");
 							volume_item_delete(item);
 						}
 				}
