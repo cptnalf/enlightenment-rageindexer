@@ -1,7 +1,7 @@
 
 CC=gcc
 CFLAGS=-g -Wall -I/data/0/opt/include
-LIBS=-L/data/0/opt/lib -lecore -levas -lsqlite3
+LIBS=-L/data/0/opt/lib -lecore -levas -lsqlite3 -lecore_file
 
 all: sqlite_test
 
