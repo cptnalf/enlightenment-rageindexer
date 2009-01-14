@@ -201,7 +201,7 @@ DBIterator* database_video_files_path_search(Database* db, const char* path)
 	char* query;
 	
 	query = sqlite3_mprintf("WHERE path like '%q%s' "
-													"ORDER BY title, path ",
+													"ORDER BY path ",
 													path, "%");
 	
 	it = database_video_files_get(db, query);
