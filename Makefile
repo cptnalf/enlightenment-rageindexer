@@ -1,13 +1,12 @@
 
 CC=gcc
-CFLAGS=-g -Wall -I/data/0/opt/include
-LIBS=-L/data/0/opt/lib -lecore -levas -lsqlite3 -lecore_file
+CFLAGS=-g -Wall `pkg-config evas ecore ecore-file --cflags`
+LIBS=-lsqlite3 `pkg-config evas ecore ecore-file --libs`
 
-all: sqlite_test
+all: rage_indexer
 
-sqlite_test: main.o
-	$(CC) $(CFLAGS) $(LIBS) main.o -o $@
+rage_indexer: main.o volume.o database.o
+	$(CC) $(CFLAGS) $(LIBS) main.o database.o volume.o -o $@
 
 clean:
-	rm -f sqlite_test main.o
-
+	rm -f rage_indexer main.o volume.o database.o

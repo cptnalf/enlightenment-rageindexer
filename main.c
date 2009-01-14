@@ -6,173 +6,166 @@
 #include <sqlite3.h>
 
 #include "volume.h"
+#include "database.h"
 #include <malloc.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <dirent.h>
 #include <time.h>
 
-typedef struct _Database Database;
-struct _Database
-{
-	sqlite3* db;
-};
-
-Database* database_new(const char* path);
-void database_free(Database* db);
-Evas_List* database_get_files(Database* db, const char* path);
-void database_delete_file(Database* db, const char* path);
-void database_insert_file(Database* db, const Volume_Item* item);
-
-static char* gen_file();
-static Volume_Item* volume_item_new(const char* path, const char* title, const char* genre);
-static void volume_item_delete(Volume_Item* item);
+char* gen_file();
 
 static char cur_path[4096];
 static Evas_List* dirstack =0;
-static const char* vol_root = 0;
-static int debug = 0;
+const char* vol_root = 0;
+int debug = 0;
 
 int main(int argc, char** argv)
 {
 	if (argc!=3)
 		{
-			fprintf(stderr, "need the path to the database file.\n");
+			fprintf(stderr, "rage_indexer <db file> <path>");
 			return 1;
 		}
 	
 	printf("db=%s;root=%s\n", argv[1], argv[2]);
 	vol_root = argv[2];
 	
-	snprintf(cur_path, sizeof(cur_path), "%s", vol_root);
+	//snprintf(cur_path, sizeof(cur_path), "%s", vol_root);
 	
 	ecore_init();
 	ecore_file_init();
 	evas_init();
 	
-	Database* db = database_new(argv[1]);
+	database_init(argv[1]);
+	Database* db = database_new();
 	
 	if (db)
 		{
-			Evas_List* list;
-			char* newfile = 0;
-			Volume_Item* item;
+			const Evas_List* vol_files;
 			time_t start_time, end_time;
+			Volume_Item* db_item, *vol_item;
+			DBIterator* db_it;
+			
 			start_time = time(0);
 			
-			newfile = gen_file();
-			while(newfile)
-				{
-					const char* f;
-					item = volume_item_new(newfile, 0, 0);
+			volume_index((char*)vol_root);
+			
+			end_time = time(0);
+/* 			printf("fs-query time=%lds\n", end_time - start_time); */
+			vol_files = volume_items_get();
+			
+			{
+				int res;
+				struct timeval s_time, e_time;
+				
+				res = gettimeofday(&s_time, 0);
+				db_it = database_video_files_path_search(db, vol_root);
+				res = gettimeofday(&e_time, 0);
+				
+/* 				{ */
+/* 					long sec = e_time.tv_sec - s_time.tv_sec; */
+/* 					long usec = e_time.tv_usec - s_time.tv_usec; */
 					
-					/* set the name. */
-					f = ecore_file_file_get(newfile);
-					if (f)
-						{
-							char* c;
-							
-							item->name = strdup(f);
-							c = strrchr(item->name, '.');
-							
-							if (c) *c = 0;
-							for (c = item->name; *c; c++)
+/* 					printf("%ld:%ld\n", sec, usec); */
+/* 				} */
+			}
+			
+			{
+				int done = 0;
+				int inserts = 0;
+				int deletes = 0;
+				int total =0;
+				int db_done = 0;
+				
+				/* prime the item for the loop. */
+				db_item = database_iterator_next(db_it);
+				db_done = (db_item == 0);
+				
+				/* compare part. */
+				while(!done)
+					{
+						if (!vol_files && db_done)
 								{
-									switch (*c)
+									/* no more items to go through, we're done. */
+									done = 1;
+								}
+							else
+								{
+									++total;
+									
+									if (vol_files && db_done)
 										{
-										case('.'):
-										case('_'): { *c = ' '; break; }
+											vol_item = evas_list_data(vol_files);
+											database_video_file_add(db, vol_item);
+											++inserts;
+											
+											if (debug) { printf("vi:%s\n",  vol_item->path); }
+											vol_files = vol_files->next;
+										}
+									else if (!vol_files && !db_done)
+										{
+											database_video_file_del(db, db_item->path);
+											++deletes;
+											
+											volume_item_free(db_item);
+											db_item = database_iterator_next(db_it);
+											db_done = (db_item == 0);
+										}
+									else
+										{
+											/* both exist. */
+											vol_item = evas_list_data(vol_files);
+											
+											//	printf("d:%s\nv:%s\n", db_item->path, vol_item->path);
+											
+											int cmp = strcmp(vol_item->path, db_item->path);
+											if (cmp == 0)
+												{
+													/* they're the same, increment both lists. */
+													volume_item_free(db_item);
+													db_item = database_iterator_next(db_it);
+													db_done = (db_item == 0);
+													vol_files = vol_files->next;
+												}
+											else if (cmp < 0)
+												{
+													/* the fs item goes below the database item,
+													 * insert the fs item and only increment the fs side.
+													 */
+													database_video_file_add(db, vol_item);
+													++inserts;
+													vol_files = vol_files->next;
+												}
+											else if (cmp > 0)
+												{
+													/* the fs item goes after the current db item,
+													 * this indicates the db item is no longer needed.
+													 * so delete it and move the db item forward.
+													 */
+													database_video_file_del(db, db_item->path);
+													++deletes;
+													volume_item_free(db_item);
+													
+													db_item = database_iterator_next(db_it);
+													db_done = (db_item == 0);
+												}
 										}
 								}
-						}
-					
-					f = ecore_file_dir_get(newfile);
-					if (f)
-							{
-								int dir_len = strlen(vol_root);
-								
-								if (!strncmp(vol_root, f, dir_len))
-									{
-										if (strlen(f) == dir_len)
-											{
-												/* well, crap, we've got the same name.
-												 * go back one dir.
-												 */
-												const char* genre_start = f + strlen(f);
-												while (genre_start != f && *genre_start != '/') { --genre_start; }
-												if (*genre_start == '/') { ++genre_start; }
-												
-												item->genre = evas_stringshare_add(genre_start);
-											}
-										else
-											{
-												/* we matched the directory to the first portion
-												 * of the filename
-												 * verify
-												 */
-												
-												if (vol_root[dir_len -1] == f[dir_len -1])
-													{
-														char buf[4096];
-														const char* it = f + dir_len;
-														int i =0;
-														
-														while(*it == '/' && it != 0) { ++it; }
-														
-														for(; *it != 0 && *it != '/'; ++i, ++it)
-															{
-																switch(*it)
-																	{
-																	case '_':
-																	case '.':
-																		{ buf[i] = ' '; break; }
-																	default: { buf[i] = *it; break; }
-																	}
-															}
-														
-														buf[i] = 0;
-														
-														item->genre = evas_stringshare_add(buf);
-													}
-											}
-									}
-								
-								if (! item->genre)
-									{
-										item->genre = evas_stringshare_add("Unknown");
-									}
-							}
-					
-					database_insert_file(db, item);
-					volume_item_delete(item);
-					
-					free(newfile);
-					newfile = gen_file();
-				}
-			
-			end_time = time(0);
-			printf("%ld\n", end_time - start_time);
-			start_time = time(0);
-			list = database_get_files(db, 0);
-			end_time = time(0);
-			printf ("%ld\n", end_time - start_time);
-			item = 0;
- 			while(list) 
-				{
-					item = (Volume_Item*)list->data;
-					list = evas_list_remove(list, item);
-					
-					if (item)
-						{
-							//printf("%s;%s;%s;\n", item->path, item->name, item->genre);
-							printf (".");
-							volume_item_delete(item);
-						}
-				}
-			
+					}
+				
+				printf("total=%d\n", total);
+				printf("inserts=%d\n", inserts);
+				printf("deletes=%d\n", deletes);
+			}
+						
+			volume_deindex((char*)vol_root);
+			database_iterator_free(db_it);
 			database_free(db);
+			
 			db = 0;
 		}
 	
@@ -182,7 +175,7 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-static char* gen_file()
+char* gen_file(char* vol_path)
 {
 	DIR* dir = 0;
 	struct dirent* de;
@@ -194,6 +187,11 @@ static char* gen_file()
 		{
 			if (!dirstack)
 				{
+					if (vol_path)
+						{
+							snprintf(cur_path, sizeof(cur_path), "%s", vol_path);
+						}
+					
 					dir = opendir(cur_path);
 					dirstack = evas_list_append(dirstack, dir);
 				}
@@ -232,27 +230,8 @@ static char* gen_file()
 										}
 									else
 										{
-											char* ext = strrchr(buf, '.');
-											
-											if (ext)
-												{
-													ext++;
-													if ((!strcasecmp(ext, "avi"))   || (!strcasecmp(ext, "mov")) ||
-															(!strcasecmp(ext, "mpg"))   || (!strcasecmp(ext, "mpeg"))||
-															(!strcasecmp(ext, "vob"))   || (!strcasecmp(ext, "wmv")) ||
-															(!strcasecmp(ext, "asf"))   || (!strcasecmp(ext, "mng")) ||
-															(!strcasecmp(ext, "3gp"))   || (!strcasecmp(ext, "wmx")) ||
-															(!strcasecmp(ext, "wvx"))   || (!strcasecmp(ext, "mp4")) ||
-															(!strcasecmp(ext, "mpe"))   || (!strcasecmp(ext, "qt"))  ||
-															(!strcasecmp(ext, "fli"))   || (!strcasecmp(ext, "dv"))  ||
-															(!strcasecmp(ext, "wm"))    || (!strcasecmp(ext, "asx")) ||
-															(!strcasecmp(ext, "movie")) || (!strcasecmp(ext, "lsf")) ||
-															(!strcasecmp(ext, "mkv")) )
-														{
-															file = strdup(buf);
-															done = 1;
-														}
-												}
+											file = strdup(buf);
+											done = 1;
 										}
 								}
 						}
@@ -276,173 +255,4 @@ static char* gen_file()
 		}
 	
 	return file;
-}
-
-/** create a connection to a database at path.
- *  @return pointer to the database, or NULL on failure.
- */
-Database* database_new(const char* path)
-{
-	int result;
-	Database* db = calloc(1, sizeof(Database));
-		
-	result = sqlite3_open(path, &db->db);
-	if (result)
-		{
-			fprintf(stderr, "error: %s\n", sqlite3_errmsg(db->db));
-			sqlite3_close(db->db);
-			free(db);
-			db = 0;
-		}
-	
-	if (db)
-		{
-			char* errmsg;
-			result = sqlite3_exec(db->db,
-														"CREATE TABLE video_files("
-														"path TEXT PRIMARY KEY,"  // sha hash of the path
-														"genre TEXT,"             // genre of the file
-														"title TEXT,"             // title of the file.
-														"playcount INTEGER,"      // number of times its played.
-														"length INTEGER,"         // length in seconds.
-														"lastplayed INTEGER)"     // time_t it was last played
-														, NULL, NULL, &errmsg);
-			
-			if (result != SQLITE_OK)
-				{
-					fprintf(stderr, "unable to create table! :%s\n", errmsg);
-					sqlite3_free(errmsg);
-				}
-		}
-	return db;
-}
-
-/** free a database connected to with 'database_new'
- */
-void database_free(Database* db)
-{
-	printf("closing the db.\n");
-	sqlite3_close(db->db);
-	free(db);
-}
-
-/** retrieve all the files in the database.
- *  @return list or NULL if error (or no files)
- */
-Evas_List* database_get_files(Database* db, const char* path)
-{
-#define COL_PATH       0
-#define COL_TITLE      1
-#define COL_GENRE      2
-#define COL_PLAYCOUNT  3
-#define COL_LENGTH     4
-#define COL_LASTPLAYED 5
-
- 	Volume_Item* item =0;
-	const char* query = 
-		"SELECT path, title, genre, playcount, length, lastplayed "
-		"FROM video_files "
-		"ORDER BY path";
-	char* error_msg;
-	int result;
-	Evas_List* list = 0;
-	int rows, cols;
-	char** tbl_results=0;
-	
-	result = sqlite3_get_table(db->db, query, &tbl_results, &rows, &cols, &error_msg);
-	if (SQLITE_OK == result)
-		{
-			int i = 0;
-			const int max_item = rows*cols;
-			
-			printf("%dx%d\n", rows, cols);
-			
-			for(i=cols; i < max_item; i += cols)
-				{
-					//printf ("%s;%s;%s\n", tbl_results[i+COL_PATH], tbl_results[i + COL_TITLE],
-					//					tbl_results[i + COL_GENRE]);
-					item = volume_item_new(tbl_results[i + COL_PATH], tbl_results[i + COL_TITLE],
-																 tbl_results[i +COL_GENRE]);
-					
-					item->play_count = atoi(tbl_results[i+COL_PLAYCOUNT]);
-					item->length = atoi(tbl_results[i+COL_LENGTH]);
-					item->last_played = atoi(tbl_results[i+COL_LASTPLAYED]);
-					
-					list = evas_list_append(list, item);
-					item = 0;
-				}
-			
-			sqlite3_free_table(tbl_results);
-		}
-	
-	return list;
-}
-
-/** delete a file from the database.
- */
-void database_delete_file(Database* db, const char* path)
-{
-	int result;
-	char* error_msg;
-	char* query = sqlite3_mprintf("DELETE FROM video_files WHERE path = %Q",
-																path);
-	
-	printf("%s\n", query);
-	result = sqlite3_exec(db->db, query, NULL, NULL, &error_msg);
-	if (result != SQLITE_OK)
-		{
-			fprintf(stderr, "db: delete error: %s; %s\n", query, error_msg);
-			sqlite3_free(error_msg);
-		}
-	
-	sqlite3_free(query);
-}
-
-/** add a new file to the database
- */
-void database_insert_file(Database* db, const Volume_Item* item)
-{
-	int result;
-	char* error_msg =0;
-	char* query = sqlite3_mprintf(
-		 "INSERT INTO video_files (path, title, genre, playcount, length, lastplayed) "
-		 "VALUES(%Q, %Q, %Q, %d, %d, %d)",
-		 item->path, item->name, item->genre, 
-		 item->play_count, item->length, item->last_played);
-	
-	result = sqlite3_exec(db->db, query, NULL, NULL, &error_msg);
-	if (result != SQLITE_OK)
-		{
-			fprintf(stderr, "db: insert error: \"%s\"; %s\n", query, error_msg);
-			sqlite3_free(error_msg);
-		}
-	
-	sqlite3_free(query);
-}
-
-Volume_Item* volume_item_new(const char* path, const char* name, const char* genre)
-{
-	Volume_Item* item = calloc(1, sizeof(Volume_Item));
-	
-	if (debug){ printf("%s;%s;%s\n", path, name, genre); }
-	item->path = strdup(path);
-	
-	if (name) { item->name = strdup(name); }
-	if (genre) { item->genre = evas_stringshare_add(genre); }
-	
-	return item;
-}
-
-void volume_item_delete(Volume_Item* item)
-{
-	if (item)
-		{
-			if (debug) 
-				{	printf("0x%X;0x%X;0x%X;0x%X\n", item, item->path, item->name, item->genre); }
-			free(item->path);
-			free(item->name);
-			if (item->genre) { evas_stringshare_del(item->genre); }
-			
-			free(item);
-		}
 }

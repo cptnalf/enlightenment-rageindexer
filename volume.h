@@ -26,7 +26,9 @@ void volume_index(char *vol);
 void volume_deindex(char *vol);
 int  volume_type_num_get(char *type);
 const Evas_List *volume_items_get(void);
-    
+Volume_Item* volume_item_new(const char* path, const char* name, const char* genre, const char* type);
+void volume_item_free(Volume_Item* item);
+
 extern int VOLUME_ADD;
 extern int VOLUME_DEL;
 extern int VOLUME_TYPE_ADD;
