@@ -19,8 +19,9 @@
 char* gen_file();
 
 static char cur_path[4096];
-static Evas_List* dirstack =0;
-const char* vol_root = 0;
+static Evas_List* dirstack =NULL;
+const char* vol_root = NULL;
+char anime = 0;
 int debug = 0;
 
 int main(int argc, char** argv)
@@ -33,6 +34,29 @@ int main(int argc, char** argv)
 	
 	printf("db=%s;root=%s\n", argv[1], argv[2]);
 	vol_root = argv[2];
+	
+	{
+		int idx = strlen(vol_root);
+
+		/* normalize the path to not be postfixed with a '/' */
+		--idx;
+		if (vol_root[idx] == '/') { argv[2][idx]='\0'; --idx; }
+		
+		printf("%s\n", (const char*)(vol_root +8));
+		/* determine if we're dealing with anime... */
+		if (vol_root[idx-4] == 'a')
+			{
+				if (vol_root[idx-3] == 'n'
+						&& vol_root[idx-2] == 'i'
+						&& vol_root[idx-1] == 'm'
+						&& vol_root[idx] == 'e'
+						) 
+					{
+						anime=1; 
+						printf("anime!\n");
+					}
+			}
+	}
 	
 	//snprintf(cur_path, sizeof(cur_path), "%s", vol_root);
 	

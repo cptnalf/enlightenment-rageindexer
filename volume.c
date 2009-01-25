@@ -8,6 +8,7 @@
 extern int debug;
 
 extern const char* vol_root;
+extern char anime;
 static Evas_List* items = 0;
 static unsigned long items_count = 0;
 
@@ -161,7 +162,7 @@ static const char* get_genre(const char* path)
 							
 							while (genre_start != f && *genre_start != '/') { --genre_start; }
 							if (*genre_start == '/') { ++genre_start; }
-
+							
 							for(; *genre_start != 0 && *genre_start != '/'; 
 									++i, ++genre_start)
 								{
@@ -192,6 +193,13 @@ static const char* get_genre(const char* path)
 									int i =0;
 									
 									while(*it == '/' && it != 0) { ++it; }
+									
+									/* anime needs a prefix... */
+									if (anime)
+										{
+											snprintf(buf, sizeof(buf), "anime/");
+											i=6;
+										}
 									
 									for(; *it != 0 && *it != '/'; ++i, ++it)
 										{
