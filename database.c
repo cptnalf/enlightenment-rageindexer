@@ -50,7 +50,7 @@ Database* database_new()
 			
 			if (result != SQLITE_OK)
 				{
-					fprintf(stderr, "unable to create table! :%s\n", errmsg);
+					//fprintf(stderr, "unable to create table! :%s\n", errmsg);
 					sqlite3_free(errmsg);
 					/* don't care about the error message.
 					*/

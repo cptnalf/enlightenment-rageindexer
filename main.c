@@ -21,8 +21,12 @@ char* gen_file();
 static char cur_path[4096];
 static Evas_List* dirstack =NULL;
 const char* vol_root = NULL;
-char anime = 0;
+char* dir_prefix = 0;
 int debug = 0;
+
+extern int sha1_sum(const unsigned char *data, int size, unsigned char *dst);
+void thumb_del(const char* filename);
+static void prefix_setup(char* dir_root);
 
 int main(int argc, char** argv)
 {
@@ -35,28 +39,7 @@ int main(int argc, char** argv)
 	printf("db=%s;root=%s\n", argv[1], argv[2]);
 	vol_root = argv[2];
 	
-	{
-		int idx = strlen(vol_root);
-
-		/* normalize the path to not be postfixed with a '/' */
-		--idx;
-		if (vol_root[idx] == '/') { argv[2][idx]='\0'; --idx; }
-		
-		printf("%s\n", (const char*)(vol_root +8));
-		/* determine if we're dealing with anime... */
-		if (vol_root[idx-4] == 'a')
-			{
-				if (vol_root[idx-3] == 'n'
-						&& vol_root[idx-2] == 'i'
-						&& vol_root[idx-1] == 'm'
-						&& vol_root[idx] == 'e'
-						) 
-					{
-						anime=1; 
-						printf("anime!\n");
-					}
-			}
-	}
+	prefix_setup(vol_root);
 	
 	//snprintf(cur_path, sizeof(cur_path), "%s", vol_root);
 	
@@ -133,6 +116,9 @@ int main(int argc, char** argv)
 									else if (!vol_files && !db_done)
 										{
 											database_video_file_del(db, db_item->path);
+											
+											/* we also want to delete the thumb file */
+											thumb_del(db_item->path);
 											++deletes;
 											
 											volume_item_free(db_item);
@@ -171,6 +157,7 @@ int main(int argc, char** argv)
 													 * so delete it and move the db item forward.
 													 */
 													database_video_file_del(db, db_item->path);
+													thumb_del(db_item->path);
 													++deletes;
 													volume_item_free(db_item);
 													
@@ -279,4 +266,61 @@ char* gen_file(char* vol_path)
 		}
 	
 	return file;
+}
+
+void thumb_del(const char* filename)
+{
+	const char cmap[] = "0123456789abcdef";
+	unsigned char sha[40];
+	char buf[4096];
+	char name[4096];
+	int i=0;
+	
+	sha1_sum((const unsigned char*)filename, strlen(filename), sha);
+	
+	/* convert the sha to a string */
+	for(i=0; i < 20; ++i)
+		{
+			buf[(i*2) + 0] = cmap[(sha[i] >> 4) & 0xf];
+			buf[(i*2) + 1] = cmap[(sha[i]     ) & 0xf];
+		}
+	buf[i*2] = 0;
+	
+	snprintf(name, sizeof(name), "%s/.rage/thumbs/%s.eet", getenv("HOME"), buf);
+	
+	if (ecore_file_exists(name))
+		{
+			ecore_file_unlink(name);
+		}
+}
+
+void prefix_setup(char* dir_root)
+{
+	int idx = strlen(dir_root);
+	const char* last_dir_part;
+	
+	/* normalize the path to not be postfixed with a '/' */
+	--idx;
+	if (vol_root[idx] == '/') { dir_root[idx]='\0'; --idx; }
+	
+	last_dir_part = vol_root + idx;
+	/* find the next '/' starting from the back. */
+	while(last_dir_part != vol_root && (*last_dir_part) != '/')
+		{ --last_dir_part; }
+	if (*last_dir_part == '/') { ++last_dir_part; }
+	/* either at the beginning of the path, or somewhere in between. */
+	
+	/* now, we want to see if we have a magic prefixer... */
+	if (strncmp(last_dir_part, "anime", 5) == 0)
+		{
+			/* determine if we're dealing with anime... */
+			dir_prefix = "anime/";
+		}
+	else
+		{
+			if (strncmp(last_dir_part, "movies", 6) == 0)
+				{ dir_prefix = "movies/"; }
+		}
+	
+	if (dir_prefix) { printf("%s!\n", dir_prefix); }
 }
