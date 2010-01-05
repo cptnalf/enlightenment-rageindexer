@@ -241,6 +241,24 @@ Volume_Item* volume_item_new(const char* path, const char* name, const char* gen
 	return item;
 }
 
+Volume_Item* volume_item_copy(const Volume_Item* item)
+{
+	Volume_Item* item_copy = calloc(1, sizeof(Volume_Item));
+	
+	item_copy->path = strdup(item->path);
+	item_copy->rpath = ecore_file_realpath(item->rpath);
+	if (item->name)  { item_copy->name = strdup(item->name); }
+	if (item->genre) { item_copy->genre = evas_stringshare_add(item->genre); }
+	if (item->type)  { item_copy->type = evas_stringshare_add(item->type); }
+	
+	item_copy->last_played = item->last_played;
+	item_copy->play_count = item->play_count;
+	item_copy->last_pos = item->last_pos;
+	item_copy->length = item->length;
+
+	return item_copy;
+}
+
 void volume_item_free(Volume_Item* item)
 {
 	if (item)

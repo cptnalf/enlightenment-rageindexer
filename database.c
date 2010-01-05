@@ -288,7 +288,7 @@ DBIterator* database_video_genres_get(Database* db)
 		{
 			if (rows > 0)
 				{
-					int max_item = rows * cols;
+					//int max_item = rows * cols;
 					
 					it = _database_iterator_new(_genre_next, 0, /* nothing to free */
 																			tbl_results, rows, cols);
@@ -307,7 +307,7 @@ void database_video_file_del(Database* db, const char* path)
 	char* query = sqlite3_mprintf("DELETE FROM video_files WHERE path = %Q",
 																path);
 	
-	printf("%s\n", query);
+	//printf("%s\n", query);
 	result = sqlite3_exec(db->db, query, NULL, NULL, &error_msg);
 	if (result != SQLITE_OK)
 		{
@@ -357,7 +357,7 @@ void database_video_file_update(Database* db, Volume_Item* item)
 													"SET playcount = %d, lastplayed = %d "
 													"WHERE path = '%q' ",
 													item->play_count, lp, item->path);
-	printf ("%s;%s;%s\n", query, item->path, item->name);
+	//printf ("%s;%s;%s\n", query, item->path, item->name);
 	
 	result = sqlite3_exec(db->db, query, NULL, NULL, &error_msg);
 	if (SQLITE_OK != result)

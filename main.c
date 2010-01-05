@@ -16,6 +16,10 @@
 #include <dirent.h>
 #include <time.h>
 
+#ifndef VERSION
+#define VERSION "_unknown_"
+#endif
+
 char* gen_file();
 
 static char cur_path[4096];
@@ -32,14 +36,17 @@ int main(int argc, char** argv)
 {
 	if (argc!=3)
 		{
-			fprintf(stderr, "rage_indexer <db file> <path>");
+			fprintf(stderr, "rage_indexer <db file> <path>\n");
+			fprintf(stderr, "(c) saa %s\n", VERSION);
+
 			return 1;
 		}
 	
+	printf("rage_indexer (c) saa %s\n", VERSION);
 	printf("db=%s;root=%s\n", argv[1], argv[2]);
 	vol_root = argv[2];
 	
-	prefix_setup(vol_root);
+	prefix_setup(argv[2]);
 	
 	//snprintf(cur_path, sizeof(cur_path), "%s", vol_root);
 	
@@ -110,6 +117,10 @@ int main(int argc, char** argv)
 											database_video_file_add(db, vol_item);
 											++inserts;
 											
+											printf("%%add|%s|%s|%s\n",
+														 vol_item->path, vol_item->name, 
+														 vol_item->genre);
+
 											if (debug) { printf("vi:%s\n",  vol_item->path); }
 											vol_files = vol_files->next;
 										}
@@ -120,6 +131,11 @@ int main(int argc, char** argv)
 											/* we also want to delete the thumb file */
 											thumb_del(db_item->path);
 											++deletes;
+											
+											printf("%%del|%s|%s|%s|%.0f|%d\n",
+														 db_item->path, db_item->name, 
+														 db_item->genre, 
+														 db_item->last_played, db_item->play_count);
 											
 											volume_item_free(db_item);
 											db_item = database_iterator_next(db_it);
@@ -148,6 +164,11 @@ int main(int argc, char** argv)
 													 */
 													database_video_file_add(db, vol_item);
 													++inserts;
+													
+													printf("%%add|%s|%s|%s\n",
+																 vol_item->path, vol_item->name, 
+																 vol_item->genre);
+													
 													vol_files = vol_files->next;
 												}
 											else if (cmp > 0)
@@ -159,6 +180,12 @@ int main(int argc, char** argv)
 													database_video_file_del(db, db_item->path);
 													thumb_del(db_item->path);
 													++deletes;
+													
+													printf("%%del|%s|%s|%s|%.0f|%d\n",
+																 db_item->path, db_item->name, 
+																 db_item->genre, 
+																 db_item->last_played, db_item->play_count);
+													
 													volume_item_free(db_item);
 													
 													db_item = database_iterator_next(db_it);
@@ -172,7 +199,7 @@ int main(int argc, char** argv)
 				printf("inserts=%d\n", inserts);
 				printf("deletes=%d\n", deletes);
 			}
-						
+			
 			volume_deindex((char*)vol_root);
 			database_iterator_free(db_it);
 			database_free(db);
@@ -186,6 +213,8 @@ int main(int argc, char** argv)
 	return 0;
 }
 
+/** generate the file list.
+ */
 char* gen_file(char* vol_path)
 {
 	DIR* dir = 0;
@@ -268,6 +297,8 @@ char* gen_file(char* vol_path)
 	return file;
 }
 
+/** delete the thumb eet associated with image we're moving/deleting.
+ */
 void thumb_del(const char* filename)
 {
 	const char cmap[] = "0123456789abcdef";
@@ -294,6 +325,10 @@ void thumb_del(const char* filename)
 		}
 }
 
+/** setup the genre depending on the root directory.
+ *  eg: movies => movies/<folder>/filename
+ *      anime  => anime/<folder>/filename
+ */
 void prefix_setup(char* dir_root)
 {
 	int idx = strlen(dir_root);
