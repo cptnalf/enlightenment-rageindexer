@@ -1,7 +1,7 @@
 
+#include <Eina.h>
 #include <Ecore.h>
 #include <Evas.h>
-#include <Evas_Data.h>
 #include <Ecore_File.h>
 #include <sqlite3.h>
 
@@ -19,7 +19,7 @@
 char* gen_file();
 
 static char cur_path[4096];
-static Evas_List* dirstack =0;
+static Eina_List* dirstack =0;
 const char* vol_root = 0;
 int debug = 0;
 
@@ -45,7 +45,7 @@ int main(int argc, char** argv)
 	
 	if (db)
 		{
-			const Evas_List* vol_files;
+			const Eina_List* vol_files;
 			time_t start_time, end_time;
 			Volume_Item* db_item, *vol_item;
 			DBIterator* db_it;
@@ -99,7 +99,7 @@ int main(int argc, char** argv)
 									
 									if (vol_files && db_done)
 										{
-											vol_item = evas_list_data(vol_files);
+											vol_item = eina_list_data_get(vol_files);
 											database_video_file_add(db, vol_item);
 											++inserts;
 											
@@ -118,7 +118,7 @@ int main(int argc, char** argv)
 									else
 										{
 											/* both exist. */
-											vol_item = evas_list_data(vol_files);
+											vol_item = eina_list_data_get(vol_files);
 											
 											//	printf("d:%s\nv:%s\n", db_item->path, vol_item->path);
 											
@@ -193,10 +193,10 @@ char* gen_file(char* vol_path)
 						}
 					
 					dir = opendir(cur_path);
-					dirstack = evas_list_append(dirstack, dir);
+					dirstack = eina_list_append(dirstack, dir);
 				}
 			
-			dir = evas_list_data(evas_list_last(dirstack));
+			dir = eina_list_data_get(eina_list_last(dirstack));
 			
 			/* base case */
 			if (!dirstack) { done = 1; break; }
@@ -219,13 +219,13 @@ char* gen_file(char* vol_path)
 											dir = opendir(buf);
 											if (dir)
 												{
-													dirstack = evas_list_append(dirstack, dir);
+													dirstack = eina_list_append(dirstack, dir);
 													snprintf(cur_path, sizeof(cur_path), buf);
 												}
 											else
 												{
 													/* restore the original directory. */
-													dir = evas_list_data(evas_list_last(dirstack));
+													dir = eina_list_data_get(eina_list_last(dirstack));
 												}
 										}
 									else
@@ -240,7 +240,7 @@ char* gen_file(char* vol_path)
 				{
 					char* p;
 					closedir(dir);
-					dirstack = evas_list_remove(dirstack, dir);
+					dirstack = eina_list_remove(dirstack, dir);
 					
 					p = strrchr(cur_path, '/');
 					if (p) { *p = 0; }

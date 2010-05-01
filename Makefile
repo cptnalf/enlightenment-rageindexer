@@ -1,7 +1,7 @@
 
 CC=gcc
-CFLAGS=-g -Wall `pkg-config evas ecore ecore-file --cflags`
-LIBS=-lsqlite3 `pkg-config evas ecore ecore-file --libs`
+CFLAGS=-g -Wall `pkg-config evas ecore ecore-file eina-0 --cflags`
+LIBS=-lsqlite3 `pkg-config evas ecore ecore-file eina-0 --libs`
 
 all: rage_indexer
 
