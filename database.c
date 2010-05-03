@@ -262,7 +262,7 @@ static void* _genre_next(DBIterator* it)
 {
 	Genre* genre = malloc(sizeof(Genre));
 			
-	genre->label = evas_stringshare_add(it->tbl_results[it->pos + 0]);
+	genre->label = eina_stringshare_add(it->tbl_results[it->pos + 0]);
 	genre->count = atoi(it->tbl_results[it->pos +1]);
 	
 	return genre;

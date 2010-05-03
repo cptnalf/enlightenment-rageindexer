@@ -1,5 +1,5 @@
 
-#include <Evas.h>
+#include <Eina.h>
 #include <Ecore_File.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +9,7 @@ extern int debug;
 
 extern const char* vol_root;
 extern char* dir_prefix;
-static Evas_List* items = 0;
+static Eina_List* items = 0;
 static unsigned long items_count = 0;
 
 static char* get_name(const char* path);
@@ -30,7 +30,7 @@ void volume_index(char* vol)
 			item = volume_file_scan(newfile);
 			if (item)
 				{
-					items = evas_list_append(items, item);
+					items = eina_list_append(items, item);
 					item = 0;
 					++items_count;
 				}
@@ -39,18 +39,18 @@ void volume_index(char* vol)
 			newfile = gen_file(0);
 		}
 	
-	items = evas_list_sort(items, items_count, volume_item_compare);
+	items = eina_list_sort(items, items_count, volume_item_compare);
 }
 
 void volume_deindex(char* vol)
 {
 	if(items)
 		{
-			Evas_List* list = items;
+			Eina_List* list = items;
 			while(list)
 				{
-					Volume_Item* ptr = evas_list_data(list);
-					list = evas_list_remove_list(items, list);
+					Volume_Item* ptr = eina_list_data_get(list);
+					list = eina_list_remove_list(list, list);
 					
 					volume_item_free(ptr);
 					--items_count;
@@ -58,7 +58,7 @@ void volume_deindex(char* vol)
 		}
 }
 
-const Evas_List* volume_items_get()
+const Eina_List* volume_items_get()
 {
 	return items;
 }
@@ -84,19 +84,19 @@ static Volume_Item* volume_file_scan(const char* path)
 					(!strcasecmp(ext, "movie")) || (!strcasecmp(ext, "lsf")) ||
 					(!strcasecmp(ext, "mkv")) )
 				{
-					type = evas_stringshare_add("video");
+					type = eina_stringshare_add("video");
 				}
 			else if ((!strcasecmp(ext, "mp3"))  || (!strcasecmp(ext, "ogg")) ||
 							 (!strcasecmp(ext, "aac"))  || (!strcasecmp(ext, "was")))
 				{
-					type = evas_stringshare_add("audio");
+					type = eina_stringshare_add("audio");
 				}
 			else if ((!strcasecmp(ext, "jpg")) || (!strcasecmp(ext, "jpeg")) ||
 							 (!strcasecmp(ext, "jpe")) || (!strcasecmp(ext, "jiff")) ||
 							 (!strcasecmp(ext, "png")) || (!strcasecmp(ext, "tiff"))
 							 )
 				{
-					type = evas_stringshare_add("photo");
+					type = eina_stringshare_add("photo");
 				}
 			
 			if (type)
@@ -177,7 +177,7 @@ static const char* get_genre(const char* path)
 							
 							buf[i] = 0;
 							
-							genre = evas_stringshare_add(buf);
+							genre = eina_stringshare_add(buf);
 						}
 					else
 						{
@@ -214,14 +214,14 @@ static const char* get_genre(const char* path)
 									
 									buf[i] = 0;
 									
-									genre = evas_stringshare_add(buf);
+									genre = eina_stringshare_add(buf);
 								}
 						}
 				}
 			
 			if (! genre)
 				{
-					genre = evas_stringshare_add("Unknown");
+					genre = eina_stringshare_add("Unknown");
 				}
 		}
 	
@@ -235,8 +235,8 @@ Volume_Item* volume_item_new(const char* path, const char* name, const char* gen
 	item->path = strdup(path);
 	item->rpath = ecore_file_realpath(item->path);
 	if (name) { item->name = strdup(name); }
-	if (genre) { item->genre = evas_stringshare_add(genre); }
-	if (type) { item->type = evas_stringshare_add(type); }
+	if (genre) { item->genre = eina_stringshare_add(genre); }
+	if (type) { item->type = eina_stringshare_add(type); }
 	
 	return item;
 }
@@ -248,8 +248,8 @@ Volume_Item* volume_item_copy(const Volume_Item* item)
 	item_copy->path = strdup(item->path);
 	item_copy->rpath = ecore_file_realpath(item->rpath);
 	if (item->name)  { item_copy->name = strdup(item->name); }
-	if (item->genre) { item_copy->genre = evas_stringshare_add(item->genre); }
-	if (item->type)  { item_copy->type = evas_stringshare_add(item->type); }
+	if (item->genre) { item_copy->genre = eina_stringshare_add(item->genre); }
+	if (item->type)  { item_copy->type = eina_stringshare_add(item->type); }
 	
 	item_copy->last_played = item->last_played;
 	item_copy->play_count = item->play_count;
@@ -271,8 +271,8 @@ void volume_item_free(Volume_Item* item)
 			free(item->path);
 			free(item->rpath);
 			free(item->name);
-			if (item->genre) { evas_stringshare_del(item->genre); }
-			if (item->type) { evas_stringshare_del(item->type); }
+			if (item->genre) { eina_stringshare_del(item->genre); }
+			if (item->type) { eina_stringshare_del(item->type); }
 			
 			free(item);
 		}

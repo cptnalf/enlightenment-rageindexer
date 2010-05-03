@@ -1,8 +1,8 @@
 
 GIT_VERSION:=\"`git rev-parse HEAD`\"
 CC=gcc
-CFLAGS=-g -Wall `pkg-config evas ecore ecore-file --cflags` -DVERSION=$(GIT_VERSION)
-LIBS=-lsqlite3 `pkg-config evas ecore ecore-file --libs`
+CFLAGS=-g -Wall `pkg-config evas ecore ecore-file eina-0 --cflags` -DVERSION=$(GIT_VERSION)
+LIBS=-lsqlite3 `pkg-config evas ecore ecore-file eina-0 --libs`
 
 OBJS=main.o volume.o database.o sha1.o
 
