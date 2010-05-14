@@ -25,6 +25,7 @@
 static char cur_path[4096];
 static Eina_List* dirstack =0;
 const char* vol_root = 0;
+char* dir_prefix = 0;
 int debug = 0;
 
 char* gen_file(char* vol_path)

@@ -4,7 +4,7 @@ CC=gcc
 CFLAGS=-g -Wall `pkg-config evas ecore ecore-file eina-0 --cflags` -DVERSION=$(GIT_VERSION)
 LIBS=-lsqlite3 `pkg-config evas ecore ecore-file eina-0 --libs`
 
-OBJS=main.o volume.o database.o sha1.o unknown_eets.o
+OBJS=main.o volume.o database.o sha1.o
 
 all: rage_indexer
 
