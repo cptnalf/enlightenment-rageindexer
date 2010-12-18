@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include "volume.h"
 #include <string.h>
+#include "extensions.h"
 extern int debug;
 
 extern const char* vol_root;
@@ -18,6 +19,14 @@ static Volume_Item* volume_file_scan(const char* path);
 static int volume_item_compare(const void* one, const void* two);
 
 extern char* gen_file(char* vol_path);
+
+static int _ext_comparer(const void* one, const void* two)
+{
+	const struct _ext* ptrOne = (const struct _ext*)one;
+	const struct _ext* ptrTwo = (const struct _ext*)two;
+	
+	return strcasecmp(ptrOne->ext, ptrTwo->ext);
+}
 
 void volume_index(char* vol)
 {
@@ -68,42 +77,42 @@ static Volume_Item* volume_file_scan(const char* path)
 	Volume_Item* item =0;
 	char* ext = strrchr(path, '.');
 	const char* type =0;
+	struct _ext* found_item = NULL;
+	struct _ext search_item;
 	
 	if (ext)
 		{
 			ext++;
-			if ((!strcasecmp(ext, "avi"))   || (!strcasecmp(ext, "mov")) ||
-					(!strcasecmp(ext, "mpg"))   || (!strcasecmp(ext, "mpeg"))||
-					(!strcasecmp(ext, "vob"))   || (!strcasecmp(ext, "wmv")) ||
-					(!strcasecmp(ext, "asf"))   || (!strcasecmp(ext, "mng")) ||
-					(!strcasecmp(ext, "3gp"))   || (!strcasecmp(ext, "wmx")) ||
-					(!strcasecmp(ext, "wvx"))   || (!strcasecmp(ext, "mp4")) ||
-					(!strcasecmp(ext, "mpe"))   || (!strcasecmp(ext, "qt"))  ||
-					(!strcasecmp(ext, "fli"))   || (!strcasecmp(ext, "dv"))  ||
-					(!strcasecmp(ext, "wm"))    || (!strcasecmp(ext, "asx")) ||
-					(!strcasecmp(ext, "movie")) || (!strcasecmp(ext, "lsf")) ||
-					(!strcasecmp(ext, "mkv")) )
-				{
-					type = eina_stringshare_add("video");
-				}
-			else if ((!strcasecmp(ext, "mp3"))  || (!strcasecmp(ext, "ogg")) ||
-							 (!strcasecmp(ext, "aac"))  || (!strcasecmp(ext, "was")))
-				{
-					type = eina_stringshare_add("audio");
-				}
-			else if ((!strcasecmp(ext, "jpg")) || (!strcasecmp(ext, "jpeg")) ||
-							 (!strcasecmp(ext, "jpe")) || (!strcasecmp(ext, "jiff")) ||
-							 (!strcasecmp(ext, "png")) || (!strcasecmp(ext, "tiff"))
-							 )
-				{
-					type = eina_stringshare_add("photo");
-				}
 			
-			if (type)
+			/* binary search through the extensions list
+			 * then use the type .
+			 */
+			search_item.ext = ext;
+			search_item.type = 0;
+			
+			void* key = bsearch(&search_item, 
+													extensions, extensions_size, sizeof(struct _ext),
+													_ext_comparer);
+			
+			found_item = (struct _ext*) key;
+			
+			if (found_item)
 				{
-					item = volume_item_new(path, 0, 0, type);
-					item->name = get_name(path);
-					item->genre = get_genre(path);
+					switch (found_item->type)
+						{
+						case (VIDEO_EXT): { type = eina_stringshare_add("video"); break; }
+						case (PHOTO_EXT): { type = eina_stringshare_add("audio"); break; }
+						case (AUDIO_EXT): { type = eina_stringshare_add("photo"); break; }
+							
+						default: { type = NULL; break; }
+						};
+					
+					if (type)
+						{
+							item = volume_item_new(path, 0, 0, type);
+							item->name = get_name(path);
+							item->genre = get_genre(path);
+						}
 				}
 		}
 	
