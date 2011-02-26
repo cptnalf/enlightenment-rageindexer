@@ -325,13 +325,19 @@ void database_video_file_add(Database* db, const Volume_Item* item)
 	int result;
 	char* error_msg =0;
 	time_t lp = time(0);
-	char* query = sqlite3_mprintf(
-		 "INSERT INTO video_files (path, title, genre, f_type, length, createdDate) "
-		 "VALUES(%Q, %Q, %Q, %Q, %d, %d)",
-		 item->path, item->name, item->genre, item->type,
-		 item->length, lp);
+	char buf[16];
+	char queryBuf[8192];
 	
-	result = sqlite3_exec(db->db, query, NULL, NULL, &error_msg);
+	snprintf(buf, sizeof(buf), "%ld", lp);
+	char* query = sqlite3_mprintf(
+		 "INSERT INTO video_files (path, title, genre, f_type, length, createddate) "
+		 "VALUES(%Q, %Q, %Q, %Q, %d",
+		 item->path, item->name, item->genre, item->type,
+		 item->length);
+	
+	snprintf(queryBuf, sizeof(queryBuf), "%s, %s)", query, buf);
+	
+	result = sqlite3_exec(db->db, queryBuf, NULL, NULL, &error_msg);
 	if (result != SQLITE_OK)
 		{
 			fprintf(stderr, "db: insert error: \"%s\"; %s\n", query, error_msg);
