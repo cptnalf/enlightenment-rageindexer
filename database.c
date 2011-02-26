@@ -43,9 +43,8 @@ Database* database_new()
 														"genre TEXT,"             // genre of the file
 														"title TEXT,"             // title of the file.
 														"f_type TEXT,"            // type of file (video, audio, photo
-														"playcount INTEGER,"      // number of times its played.
 														"length INTEGER,"         // length in seconds.
-														"lastplayed INTEGER)"     // time_t it was last played
+														"createdDate INTEGER)"     // time_t it was last played
 														, NULL, NULL, &errmsg);
 			
 			if (result != SQLITE_OK)
@@ -55,6 +54,7 @@ Database* database_new()
 					/* don't care about the error message.
 					*/
 				}
+			
 		}
 	return db;
 }
@@ -165,7 +165,7 @@ DBIterator* database_video_files_get(Database* db, const char* query_part2)
 	char query[4096];
 	
 	const char* query_base = 
-		"SELECT path, title, genre, f_type, playcount, length, lastplayed "
+		"SELECT path, title, genre, f_type, 0, length, 0 "
 		"FROM video_files ";
 	
 	if (! query_part2)
@@ -238,8 +238,8 @@ DBIterator* database_video_files_genre_search(Database* db, const char* genre)
 DBIterator* database_video_favorites_get(Database* db)
 {
  	const char* where_clause = 
-		"WHERE playcount > 0 "
-		"ORDER BY playcount DESC, lastplayed DESC, title, path "
+		"WHERE 0 > 0 "
+		"ORDER BY title, path "
 		"LIMIT 25";
 	
 	return database_video_files_get(db, where_clause);
@@ -253,7 +253,7 @@ DBIterator* database_video_favorites_get(Database* db)
 DBIterator* database_video_recents_get(Database* db)
 {
 	const char* where_clause =
-		"ORDER BY lastplayed DESC, title, path "
+		"ORDER BY title, path "
 		" LIMIT 25";
 	return database_video_files_get(db, where_clause);
 }
@@ -324,11 +324,12 @@ void database_video_file_add(Database* db, const Volume_Item* item)
 {
 	int result;
 	char* error_msg =0;
+	time_t lp = time(0);
 	char* query = sqlite3_mprintf(
-		 "INSERT INTO video_files (path, title, genre, f_type, playcount, length, lastplayed) "
-		 "VALUES(%Q, %Q, %Q, %Q, %d, %d, %d)",
+		 "INSERT INTO video_files (path, title, genre, f_type, length, createdDate) "
+		 "VALUES(%Q, %Q, %Q, %Q, %d, %d)",
 		 item->path, item->name, item->genre, item->type,
-		 item->play_count, item->length, item->last_played);
+		 item->length, lp);
 	
 	result = sqlite3_exec(db->db, query, NULL, NULL, &error_msg);
 	if (result != SQLITE_OK)
@@ -337,34 +338,6 @@ void database_video_file_add(Database* db, const Volume_Item* item)
 			sqlite3_free(error_msg);
 		}
 	
-	sqlite3_free(query);
-}
-
-/* played the file.
- */
-void database_video_file_update(Database* db, Volume_Item* item)
-{
-	int result;
-	char* error_msg;
-	char* query;
-	time_t lp = time(0);
-	
-	/* update the values so they can be written to the database. */
-	item->play_count ++;
-	item->last_played = 0.0 + lp;
-	
-	query = sqlite3_mprintf("UPDATE video_files "
-													"SET playcount = %d, lastplayed = %d "
-													"WHERE path = '%q' ",
-													item->play_count, lp, item->path);
-	//printf ("%s;%s;%s\n", query, item->path, item->name);
-	
-	result = sqlite3_exec(db->db, query, NULL, NULL, &error_msg);
-	if (SQLITE_OK != result)
-		{
-			fprintf(stderr, "db: update error:\"%s\"; %s\n", query, error_msg);
-			sqlite3_free(error_msg);
-		}
 	sqlite3_free(query);
 }
 
