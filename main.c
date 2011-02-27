@@ -1,12 +1,9 @@
 
 #include <Eina.h>
 #include <Ecore.h>
-#include <Evas.h>
 #include <Ecore_File.h>
-#include <sqlite3.h>
 
 #include "volume.h"
-#include "database.h"
 #include <malloc.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,9 +13,29 @@
 #include <dirent.h>
 #include <time.h>
 
+#include <Ecore_Con.h>
+#include <Ecore_Ipc.h>
+#include "rage_ipc.h"
+
 #ifndef VERSION
 #define VERSION "_unknown_"
 #endif
+
+typedef struct _Indexer_Data Indexer_Data;
+struct _Indexer_Data
+{
+	Rage_Ipc* conn;
+	int done;
+	int inserts;
+	int deletes;
+	int total;
+	int db_done;
+
+	const Eina_List* vol_files;
+	const Eina_List* db_files;
+	Eina_List* db_src;
+	Volume_Item* db_item, *vol_item;
+};
 
 char* gen_file();
 
@@ -31,186 +48,253 @@ int debug = 0;
 extern int sha1_sum(const unsigned char *data, int size, unsigned char *dst);
 void thumb_del(const char* filename);
 static void prefix_setup(char* dir_root);
+static Eina_Bool _idler(void* data);
+static Eina_Bool _dbQuery(void* data);
 
 int main(int argc, char** argv)
 {
+	const char* addr;
+	int port;
+	
 	if (argc!=3)
 		{
-			fprintf(stderr, "rage_indexer <db file> <path>\n");
+			fprintf(stderr, "rage_indexer <server> <port> <path>\n");
 			fprintf(stderr, "(c) saa %s\n", VERSION);
 
 			return 1;
 		}
 	
-	printf("rage_indexer (c) saa %s\n", VERSION);
-	printf("db=%s;root=%s\n", argv[1], argv[2]);
-	vol_root = argv[2];
+	addr = argv[1];
+	port = atoi(argv[2]);
+	vol_root = argv[3];
 	
-	prefix_setup(argv[2]);
+	printf("rage_indexer (c) saa %s\n", VERSION);
+	printf("rageipc://%s:%d;root=%s\n", addr, port, vol_root);
+	
+	prefix_setup(argv[3]);
 	
 	//snprintf(cur_path, sizeof(cur_path), "%s", vol_root);
 	
 	ecore_init();
 	ecore_file_init();
-	evas_init();
+	ecore_con_init();
+	ecore_ipc_init();
+	rage_ipc_init();
 	
-	database_init(argv[1]);
-	Database* db = database_new();
-	
-	if (db)
+	{
+		time_t start_time, end_time;
+		Indexer_Data idxData;
+		
+		memset(&idxData, 0, sizeof(Indexer_Data));
+		
+		start_time = time(0);
+		
+		volume_index((char*)vol_root);
+		
+		end_time = time(0);
+		/* 			printf("fs-query time=%lds\n", end_time - start_time); */
+		idxData.vol_files = volume_items_get();
+		
 		{
-			const Eina_List* vol_files;
-			time_t start_time, end_time;
-			Volume_Item* db_item, *vol_item;
-			DBIterator* db_it;
+			Ecore_Idler* idler;
 			
-			start_time = time(0);
+			idxData.conn = rage_ipc_create("localhost", 9889);
+			idler = ecore_idler_add( _dbQuery, &idxData);
 			
-			volume_index((char*)vol_root);
+			ecore_main_loop_begin();
 			
-			end_time = time(0);
-/* 			printf("fs-query time=%lds\n", end_time - start_time); */
-			vol_files = volume_items_get();
+			//ecore_idler_del(idler);
+			rage_ipc_del(idxData.conn);
+			idxData.conn = NULL;
 			
-			{
-				int res;
-				struct timeval s_time, e_time;
-				
-				res = gettimeofday(&s_time, 0);
-				db_it = database_video_files_path_search(db, vol_root);
-				res = gettimeofday(&e_time, 0);
-				
-/* 				{ */
-/* 					long sec = e_time.tv_sec - s_time.tv_sec; */
-/* 					long usec = e_time.tv_usec - s_time.tv_usec; */
-					
-/* 					printf("%ld:%ld\n", sec, usec); */
-/* 				} */
-			}
+			printf("total=%d\n", idxData.total);
+			printf("inserts=%d\n", idxData.inserts);
+			printf("deletes=%d\n", idxData.deletes);
 			
-			{
-				int done = 0;
-				int inserts = 0;
-				int deletes = 0;
-				int total =0;
-				int db_done = 0;
-				
-				/* prime the item for the loop. */
-				db_item = database_iterator_next(db_it);
-				db_done = (db_item == 0);
-				
-				/* compare part. */
-				while(!done)
-					{
-						if (!vol_files && db_done)
-								{
-									/* no more items to go through, we're done. */
-									done = 1;
-								}
-							else
-								{
-									++total;
-									
-									if (vol_files && db_done)
-										{
-											vol_item = eina_list_data_get(vol_files);
-											database_video_file_add(db, vol_item);
-											++inserts;
-											
-											printf("%%add|%s|%s|%s\n",
-														 vol_item->path, vol_item->name, 
-														 vol_item->genre);
-
-											if (debug) { printf("vi:%s\n",  vol_item->path); }
-											vol_files = vol_files->next;
-										}
-									else if (!vol_files && !db_done)
-										{
-											database_video_file_del(db, db_item->path);
-											
-											/* we also want to delete the thumb file */
-											thumb_del(db_item->path);
-											++deletes;
-											
-											printf("%%del|%s|%s|%s|%.0f|%d\n",
-														 db_item->path, db_item->name, 
-														 db_item->genre, 
-														 db_item->last_played, db_item->play_count);
-											
-											volume_item_free(db_item);
-											db_item = database_iterator_next(db_it);
-											db_done = (db_item == 0);
-										}
-									else
-										{
-											/* both exist. */
-											vol_item = eina_list_data_get(vol_files);
-											
-											//	printf("d:%s\nv:%s\n", db_item->path, vol_item->path);
-											
-											int cmp = strcmp(vol_item->path, db_item->path);
-											if (cmp == 0)
-												{
-													/* they're the same, increment both lists. */
-													volume_item_free(db_item);
-													db_item = database_iterator_next(db_it);
-													db_done = (db_item == 0);
-													vol_files = vol_files->next;
-												}
-											else if (cmp < 0)
-												{
-													/* the fs item goes below the database item,
-													 * insert the fs item and only increment the fs side.
-													 */
-													database_video_file_add(db, vol_item);
-													++inserts;
-													
-													printf("%%add|%s|%s|%s\n",
-																 vol_item->path, vol_item->name, 
-																 vol_item->genre);
-													
-													vol_files = vol_files->next;
-												}
-											else if (cmp > 0)
-												{
-													/* the fs item goes after the current db item,
-													 * this indicates the db item is no longer needed.
-													 * so delete it and move the db item forward.
-													 */
-													database_video_file_del(db, db_item->path);
-													thumb_del(db_item->path);
-													++deletes;
-													
-													printf("%%del|%s|%s|%s|%.0f|%d\n",
-																 db_item->path, db_item->name, 
-																 db_item->genre, 
-																 db_item->last_played, db_item->play_count);
-													
-													volume_item_free(db_item);
-													
-													db_item = database_iterator_next(db_it);
-													db_done = (db_item == 0);
-												}
-										}
-								}
-					}
-				
-				printf("total=%d\n", total);
-				printf("inserts=%d\n", inserts);
-				printf("deletes=%d\n", deletes);
-			}
-			
-			volume_deindex((char*)vol_root);
-			database_iterator_free(db_it);
-			database_free(db);
-			
-			db = 0;
-		}
+			if (idxData.db_src)
+				{
+					/* these items have been freed as the comparison has progressed. */
+					eina_list_free(idxData.db_src);
+				}
+		}	
+		volume_deindex((char*)vol_root);
+	}
 	
+	rage_ipc_shutdown();
+	ecore_ipc_shutdown();
+	ecore_con_shutdown();
 	ecore_file_shutdown();
 	ecore_shutdown();
 	
 	return 0;
+}
+
+static Eina_Bool _path_query_finished(Query_Result* result, void* data)
+{
+	Indexer_Data* idxData = data;
+	Volume_Item* volitem;
+	unsigned int i;
+	Ecore_Idler* idle;
+	
+	for(i=0; i < result->count; ++i)
+		{
+			volitem = 
+				volume_item_new(result->recs[i].id,
+												result->recs[i].path,
+												result->recs[i].name,
+												result->recs[i].genre,
+												result->recs[i].type
+												);
+			idxData->db_src = eina_list_append(idxData->db_src, volitem);
+		}
+	
+	idxData->db_files = idxData->db_src;
+
+	idle = ecore_idler_add(_idler, data);
+	
+	return EINA_TRUE;
+}
+
+static Eina_Bool _dbQuery(void* data)
+{
+	/* int res; */
+	/* struct timeval s_time, e_time; */
+	
+	/* res = gettimeofday(&s_time, 0); */
+	/* idxData.db_it = database_video_files_path_search(db, vol_root); */
+	/* res = gettimeofday(&e_time, 0); */
+	
+	/* 				{ */
+	/* 					long sec = e_time.tv_sec - s_time.tv_sec; */
+	/* 					long usec = e_time.tv_usec - s_time.tv_usec; */
+	
+	/* 					printf("%ld:%ld\n", sec, usec); */
+	/* 				} */
+	
+	/* prime the item for the loop. */
+	/* idxData.db_item = database_iterator_next(idxData.db_it); */
+	/* idxData.db_done = (idxData.db_item == 0); */
+	
+	Indexer_Data* idxData = data;
+	
+	rage_ipc_media_path_query(idxData->conn, vol_root, _path_query_finished, data);
+	return EINA_FALSE;
+}
+
+/* 
+ * ask for all of the items under path x.
+ */
+
+static Eina_Bool _idler(void* data)
+{
+	Indexer_Data* idxData = data;
+	time_t created;
+	
+	/* compare part. */
+	if (idxData->done) { ecore_main_loop_quit(); return EINA_FALSE; }
+	else
+		{
+			if (!idxData->vol_files && !idxData->db_files)
+				{
+					/* no more items to go through, we're done. */
+					idxData->done = 1;
+				}
+			else
+				{
+					++ idxData->total;
+					
+					if (idxData->vol_files && !idxData->db_files)
+						{
+							idxData->vol_item = eina_list_data_get(idxData->vol_files);
+							
+							created = time(0);
+							rage_ipc_media_add(idxData->conn, 
+																 idxData->vol_item->path, idxData->vol_item->name, 
+																 idxData->vol_item->genre, idxData->vol_item->type,
+																 created);
+							++ idxData->inserts;
+							
+							printf("%%add|%s|%s|%s\n",
+										 idxData->vol_item->path, idxData->vol_item->name, 
+										 idxData->vol_item->genre);
+							
+							if (debug) { printf("vi:%s\n",  idxData->vol_item->path); }
+							idxData->vol_files = idxData->vol_files->next;
+						}
+					else if (! idxData->vol_files && idxData->db_files)
+						{
+							idxData->db_item = eina_list_data_get(idxData->db_files);
+							
+							rage_ipc_media_del(idxData->conn, idxData->db_item->path);
+							
+							/* we also want to delete the thumb file */
+							thumb_del(idxData->db_item->path);
+							++ idxData->deletes;
+											
+							printf("%%del|%s|%s|%s|%.0f|%d\n",
+										 idxData->db_item->path, idxData->db_item->name, 
+										 idxData->db_item->genre, 
+										 idxData->db_item->last_played, idxData->db_item->play_count);
+											
+							volume_item_free(idxData->db_item);
+							idxData->db_files = idxData->db_files->next;
+						}
+					else
+						{
+							/* both exist. */
+							idxData->vol_item = eina_list_data_get(idxData->vol_files);
+							idxData->db_item = eina_list_data_get(idxData->db_files);
+											
+							//	printf("d:%s\nv:%s\n", db_item->path, vol_item->path);
+											
+							int cmp = strcmp(idxData->vol_item->path, idxData->db_item->path);
+							if (cmp == 0)
+								{
+									/* they're the same, increment both lists. */
+									volume_item_free(idxData->db_item);
+									idxData->db_files = idxData->db_files->next;
+									idxData->vol_files = idxData->vol_files->next;
+								}
+							else if (cmp < 0)
+								{
+									/* the fs item goes below the database item,
+									 * insert the fs item and only increment the fs side.
+									 */
+									created = time(0);
+									rage_ipc_media_add(idxData->conn, 
+																		 idxData->vol_item->path, idxData->vol_item->name, 
+																		 idxData->vol_item->genre, idxData->vol_item->type,
+																		 created);
+									++ idxData->inserts;
+									
+									printf("%%add|%s|%s|%s\n",
+												 idxData->vol_item->path, idxData->vol_item->name, 
+												 idxData->vol_item->genre);
+													
+									idxData->vol_files = idxData->vol_files->next;
+								}
+							else if (cmp > 0)
+								{
+									/* the fs item goes after the current db item,
+									 * this indicates the db item is no longer needed.
+									 * so delete it and move the db item forward.
+									 */
+									rage_ipc_media_del(idxData->conn, idxData->db_item->path);
+									thumb_del(idxData->db_item->path);
+									++ idxData->deletes;
+													
+									printf("%%del|%s|%s|%s|%.0f|%d\n",
+												 idxData->db_item->path, idxData->db_item->name, 
+												 idxData->db_item->genre, 
+												 idxData->db_item->last_played, idxData->db_item->play_count);
+													
+									volume_item_free(idxData->db_item);
+									idxData->db_files = idxData->db_files->next;
+								}
+						}
+				}
+		}
+	return EINA_TRUE;
 }
 
 /** generate the file list.

@@ -109,7 +109,7 @@ static Volume_Item* volume_file_scan(const char* path)
 					
 					if (type)
 						{
-							item = volume_item_new(path, 0, 0, type);
+							item = volume_item_new(0, path, 0, 0, type);
 							item->name = get_name(path);
 							item->genre = get_genre(path);
 						}
@@ -237,10 +237,11 @@ static const char* get_genre(const char* path)
 	return genre;
 }
 
-Volume_Item* volume_item_new(const char* path, const char* name, const char* genre, const char* type)
+Volume_Item* volume_item_new(const long long id, const char* path, const char* name, const char* genre, const char* type)
 {
 	Volume_Item* item = calloc(1, sizeof(Volume_Item));
 	
+	item->id = id;
 	item->path = strdup(path);
 	item->rpath = ecore_file_realpath(item->path);
 	if (name) { item->name = strdup(name); }
@@ -254,6 +255,7 @@ Volume_Item* volume_item_copy(const Volume_Item* item)
 {
 	Volume_Item* item_copy = calloc(1, sizeof(Volume_Item));
 	
+	item_copy->id = item->id;
 	item_copy->path = strdup(item->path);
 	item_copy->rpath = ecore_file_realpath(item->rpath);
 	if (item->name)  { item_copy->name = strdup(item->name); }
