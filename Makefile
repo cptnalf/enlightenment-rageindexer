@@ -14,5 +14,8 @@ rage_indexer: $(OBJS)
 unknown_eets: unknown_eets.o volume.o database.o sha1.o
 	$(CC) $(CFLAGS) $(LIBS) unknown_eets.o volume.o database.o sha1.o -o $@
 
+test_client: $(OBJS) test_client.o
+	$(CC) $(CFLAGS) $(LIBS) rage_ipc.o test_client.o -o $@
+
 clean:
-	rm -f rage_indexer unknown_eets $(OBJS)
+	rm -f rage_indexer unknown_eets test_client test_client.o $(OBJS)

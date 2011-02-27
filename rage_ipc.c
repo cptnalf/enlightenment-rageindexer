@@ -81,6 +81,12 @@ void rage_ipc_del(Rage_Ipc* conn)
 	free(conn);
 }
 
+Eina_Bool rage_ipc_ready(Rage_Ipc* conn)
+{
+	if (conn) { return (conn->ready ? EINA_TRUE : EINA_FALSE); }
+	return EINA_FALSE;
+}
+
 void rage_ipc_media_add(Rage_Ipc* conn, char* path, char* name, 
 												const char* genre, const char* type, time_t created_date)
 {
@@ -99,7 +105,7 @@ void rage_ipc_media_add(Rage_Ipc* conn, char* path, char* name,
 void rage_ipc_media_del(Rage_Ipc* conn, const char* path)
 {
 	ecore_ipc_server_send(conn->server, OP_MEDIA_DEL, 0, 0, 0, 0,
-												path, strlen(path));
+												path, strlen(path) + 1);
 }
 
 /* struct _Rage_Ipc_Played */
@@ -123,6 +129,16 @@ void rage_ipc_media_del(Rage_Ipc* conn, const char* path)
 /* 												path, strlen(path)); */
 /* } */
 
+void rage_ipc_genre_list(Rage_Ipc* conn, const char* genre,
+												 Eina_Bool (*callback)(Genre_Result* result, void* data),
+												 void* data)
+{
+	conn->genre_list_callback = callback;
+	conn->genre_list_data = data;
+	ecore_ipc_server_send(conn->server, OP_GENRES_GET, 0, 0, 0, 0, 
+												genre, strlen(genre) + 1);
+}
+
 void rage_ipc_media_path_query(Rage_Ipc* conn, const char* path, 
 															 Eina_Bool (*callback)(Query_Result* result, void* data),
 															 void* data)
@@ -131,7 +147,7 @@ void rage_ipc_media_path_query(Rage_Ipc* conn, const char* path,
 	conn->_path_query_data = data;
 	
 	ecore_ipc_server_send(conn->server, OP_MEDIA_QUERY, MQ_TYPE_PATH, 0, 0, 0,
-												path, strlen(path));
+												path, strlen(path) + 1);
 }
 
 static Eina_Bool _client_cb_add(void *data __UNUSED__, int type __UNUSED__, void *event)
@@ -162,7 +178,9 @@ static Eina_Bool _client_cb_del(void *data __UNUSED__, int type __UNUSED__, void
 			printf("Warning: unknown server deleted.\n");
 			return EINA_TRUE;
 		}
-	rage_ipc_del(nd);
+	
+	nd->server = NULL;
+	//rage_ipc_del(nd);
 	return EINA_TRUE;
 }
 
@@ -229,6 +247,7 @@ static Eina_Bool _client_cb_data(void *data __UNUSED__, int type __UNUSED__, voi
 						if (nd->ident) free(nd->ident);
 						nd->ident = strdup(e->data);
 					}
+				nd->ready = 1;
 				break; 
 			}
 			
@@ -239,6 +258,36 @@ static Eina_Bool _client_cb_data(void *data __UNUSED__, int type __UNUSED__, voi
 		case OP_MEDIA_DEL:
 			printf("got media delete!\n");
 			break;
+		case (OP_MEDIA_LIST):
+			{
+				Query_Result* result = e->data;
+				
+				if (result->size == e->size)
+					{
+						/* this is the query response, so call the callback. */
+						if (nd->_path_query_callback)
+							nd->_path_query_callback(result, nd->_path_query_data);
+					}
+				
+				nd->_path_query_callback = NULL;
+				nd->_path_query_data = NULL;
+				break;
+			}
+			
+		case (OP_GENRE_LIST):
+			{
+				Genre_Result* result = e->data;
+				if ((e->size == 0) || (result->size == e->size))
+					{
+						if (nd->genre_list_callback)
+							nd->genre_list_callback(result, nd->genre_list_data);
+					}
+				
+				nd->genre_list_callback = NULL;
+				nd->genre_list_data = NULL;
+				break;
+			}
+
 		case OP_MEDIA_LOCK_NOTIFY:
 			break;
 		case OP_MEDIA_UNLOCK_NOTIFY:

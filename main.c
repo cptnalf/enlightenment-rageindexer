@@ -56,7 +56,7 @@ int main(int argc, char** argv)
 	const char* addr;
 	int port;
 	
-	if (argc!=3)
+	if (argc!=4)
 		{
 			fprintf(stderr, "rage_indexer <server> <port> <path>\n");
 			fprintf(stderr, "(c) saa %s\n", VERSION);
@@ -136,19 +136,24 @@ static Eina_Bool _path_query_finished(Query_Result* result, void* data)
 	unsigned int i;
 	Ecore_Idler* idle;
 	
-	for(i=0; i < result->count; ++i)
-		{
-			volitem = 
-				volume_item_new(result->recs[i].id,
-												result->recs[i].path,
-												result->recs[i].name,
-												result->recs[i].genre,
-												result->recs[i].type
-												);
-			idxData->db_src = eina_list_append(idxData->db_src, volitem);
-		}
+	printf("got %d records from the host\n", result->count);
 	
-	idxData->db_files = idxData->db_src;
+	if (result)
+		{
+			for(i=0; i < result->count; ++i)
+				{
+					volitem = 
+						volume_item_new(result->recs[i].id,
+														result->recs[i].path,
+														result->recs[i].name,
+														result->recs[i].genre,
+														result->recs[i].type
+														);
+					idxData->db_src = eina_list_append(idxData->db_src, volitem);
+				}
+			
+			idxData->db_files = idxData->db_src;
+		}
 
 	idle = ecore_idler_add(_idler, data);
 	
@@ -177,6 +182,7 @@ static Eina_Bool _dbQuery(void* data)
 	
 	Indexer_Data* idxData = data;
 	
+	printf("querying for %s.\n", vol_root);
 	rage_ipc_media_path_query(idxData->conn, vol_root, _path_query_finished, data);
 	return EINA_FALSE;
 }
