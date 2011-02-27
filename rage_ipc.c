@@ -50,6 +50,7 @@ Rage_Ipc* rage_ipc_create(const char* addr, const int port)
 	
 	if (data)
 		{
+			printf("connecting to %s:%d\n", addr, port);
 			data->server = ecore_ipc_server_connect(ECORE_IPC_REMOTE_SYSTEM,
 																							(char*)addr, port,
 																							data);

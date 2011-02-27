@@ -114,7 +114,7 @@ int main(int argc, char** argv)
 			idxData.vol_files = volume_items_get();
 		}
 
-	idxData.conn = rage_ipc_create("localhost", 9889);
+	idxData.conn = rage_ipc_create(addr, 9889);
 	if (idxData.monitor) { fs_mon_init(vol_root, translate, idxData.conn); }
 	{
 		Ecore_Idler* idler = ecore_idler_add(_idler_start, &idxData);
