@@ -16,6 +16,7 @@
 #include <Ecore_Con.h>
 #include <Ecore_Ipc.h>
 #include "rage_ipc.h"
+#include "fs_mon.h"
 
 #ifndef VERSION
 #define VERSION "_unknown_"
@@ -25,6 +26,7 @@ typedef struct _Indexer_Data Indexer_Data;
 struct _Indexer_Data
 {
 	Rage_Ipc* conn;
+	const char* vol_root;
 	int done;
 	int inserts;
 	int deletes;
@@ -35,43 +37,62 @@ struct _Indexer_Data
 	const Eina_List* db_files;
 	Eina_List* db_src;
 	Volume_Item* db_item, *vol_item;
+	Eina_Bool monitor;
 };
 
 char* gen_file();
 
-static char cur_path[4096];
-static Eina_List* dirstack =NULL;
-const char* vol_root = NULL;
-char* dir_prefix = 0;
-int debug = 0;
+static int debug = 0;
 
+static Eina_Bool _idler_start(void* data);
 extern int sha1_sum(const unsigned char *data, int size, unsigned char *dst);
 void thumb_del(const char* filename);
-static void prefix_setup(char* dir_root);
 static Eina_Bool _idler(void* data);
 static Eina_Bool _dbQuery(void* data);
 
 int main(int argc, char** argv)
 {
+	int i=1;
+	Indexer_Data idxData;
 	const char* addr;
 	int port;
+	const char* vol_root;
+	const char* translate = NULL;
+
+	memset(&idxData, 0, sizeof(Indexer_Data));
 	
-	if (argc!=4)
+	if (argc < 4)
 		{
-			fprintf(stderr, "rage_indexer <server> <port> <path>\n");
+			fprintf(stderr, "rage_indexer -[m|i] <server> <port> <path> [translate path]\n");
 			fprintf(stderr, "(c) saa %s\n", VERSION);
 
 			return 1;
 		}
 	
-	addr = argv[1];
-	port = atoi(argv[2]);
-	vol_root = argv[3];
+	if (!strcmp(argv[i], "-m")) { idxData.monitor = EINA_TRUE; }
+	else if (!strcmp(argv[i], "-i")) { idxData.monitor = EINA_FALSE; }
+	else
+		{
+			fprintf(stderr, "unknown mode %s\n", argv[i]);
+			return 1;
+		}
+	++i;
+	
+	addr = argv[i];
+	++i;
+	port = atoi(argv[i]);
+	++i;
+	vol_root = argv[i];
+	idxData.vol_root = vol_root;
+	++i;
+	
+	if (i < argc)
+		{
+			translate = argv[i];
+		}
 	
 	printf("rage_indexer (c) saa %s\n", VERSION);
 	printf("rageipc://%s:%d;root=%s\n", addr, port, vol_root);
-	
-	prefix_setup(argv[3]);
 	
 	//snprintf(cur_path, sizeof(cur_path), "%s", vol_root);
 	
@@ -79,30 +100,34 @@ int main(int argc, char** argv)
 	ecore_file_init();
 	ecore_con_init();
 	ecore_ipc_init();
-	rage_ipc_init();
-	
-	{
-		time_t start_time, end_time;
-		Indexer_Data idxData;
-		
-		memset(&idxData, 0, sizeof(Indexer_Data));
-		
-		start_time = time(0);
-		
-		volume_index((char*)vol_root);
-		
-		end_time = time(0);
-		/* 			printf("fs-query time=%lds\n", end_time - start_time); */
-		idxData.vol_files = volume_items_get();
-		
+	rage_ipc_init(1);
+
+	if (! idxData.monitor)
 		{
-			Ecore_Idler* idler;
+			time_t start_time, end_time;
+			volume_init(debug, vol_root, translate);
 			
-			idxData.conn = rage_ipc_create("localhost", 9889);
-			idler = ecore_idler_add( _dbQuery, &idxData);
-			
-			ecore_main_loop_begin();
-			
+			start_time = time(0);
+			volume_index((char*)vol_root, translate);
+			end_time = time(0);
+			/* 			printf("fs-query time=%lds\n", end_time - start_time); */
+			idxData.vol_files = volume_items_get();
+		}
+
+	idxData.conn = rage_ipc_create("localhost", 9889);
+	if (idxData.monitor) { fs_mon_init(vol_root, translate, idxData.conn); }
+	{
+		Ecore_Idler* idler = ecore_idler_add(_idler_start, &idxData);
+	}
+	
+	ecore_main_loop_begin();
+	
+	if (idxData.monitor)
+		{
+			fs_mon_shutdown();
+		}
+	else
+		{
 			//ecore_idler_del(idler);
 			rage_ipc_del(idxData.conn);
 			idxData.conn = NULL;
@@ -116,9 +141,8 @@ int main(int argc, char** argv)
 					/* these items have been freed as the comparison has progressed. */
 					eina_list_free(idxData.db_src);
 				}
-		}	
-		volume_deindex((char*)vol_root);
-	}
+			volume_deindex((char*)vol_root);
+		}
 	
 	rage_ipc_shutdown();
 	ecore_ipc_shutdown();
@@ -152,6 +176,8 @@ static Eina_Bool _path_query_finished(Query_Result* result, void* data)
 					idxData->db_src = eina_list_append(idxData->db_src, volitem);
 				}
 			
+			idxData->db_src = eina_list_sort(idxData->db_src, result->count, 
+																			 volume_item_compare);			
 			idxData->db_files = idxData->db_src;
 		}
 
@@ -182,15 +208,34 @@ static Eina_Bool _dbQuery(void* data)
 	
 	Indexer_Data* idxData = data;
 	
-	printf("querying for %s.\n", vol_root);
-	rage_ipc_media_path_query(idxData->conn, vol_root, _path_query_finished, data);
+	printf("querying for %s.\n", idxData->vol_root);
+	rage_ipc_media_path_query(idxData->conn, idxData->vol_root, _path_query_finished, data);
 	return EINA_FALSE;
+}
+
+static Eina_Bool _idler_start(void* data)
+{
+	Indexer_Data* idx_data = data;
+	
+	if (rage_ipc_ready(idx_data->conn))
+		{
+			printf("start!\n");
+
+			if (idx_data->monitor) { fs_mon_startup(); }
+			else
+				{
+					Ecore_Idler* idler = ecore_idler_add( _dbQuery, idx_data);
+					idler = NULL;
+				}
+			return EINA_FALSE;
+		}
+	
+	return EINA_TRUE;
 }
 
 /* 
  * ask for all of the items under path x.
  */
-
 static Eina_Bool _idler(void* data)
 {
 	Indexer_Data* idxData = data;
@@ -220,9 +265,10 @@ static Eina_Bool _idler(void* data)
 																 created);
 							++ idxData->inserts;
 							
-							printf("%%add|%s|%s|%s\n",
-										 idxData->vol_item->path, idxData->vol_item->name, 
-										 idxData->vol_item->genre);
+							if (debug)
+								printf("%%add|%s|%s|%s\n",
+											 idxData->vol_item->path, idxData->vol_item->name, 
+											 idxData->vol_item->genre);
 							
 							if (debug) { printf("vi:%s\n",  idxData->vol_item->path); }
 							idxData->vol_files = idxData->vol_files->next;
@@ -236,12 +282,13 @@ static Eina_Bool _idler(void* data)
 							/* we also want to delete the thumb file */
 							thumb_del(idxData->db_item->path);
 							++ idxData->deletes;
-											
-							printf("%%del|%s|%s|%s|%.0f|%d\n",
-										 idxData->db_item->path, idxData->db_item->name, 
-										 idxData->db_item->genre, 
-										 idxData->db_item->last_played, idxData->db_item->play_count);
-											
+									
+							if (debug)
+								printf("%%del|%s|%s|%s|%.0f|%d\n",
+											 idxData->db_item->path, idxData->db_item->name, 
+											 idxData->db_item->genre, 
+											 idxData->db_item->last_played, idxData->db_item->play_count);
+							
 							volume_item_free(idxData->db_item);
 							idxData->db_files = idxData->db_files->next;
 						}
@@ -273,10 +320,11 @@ static Eina_Bool _idler(void* data)
 																		 created);
 									++ idxData->inserts;
 									
-									printf("%%add|%s|%s|%s\n",
-												 idxData->vol_item->path, idxData->vol_item->name, 
-												 idxData->vol_item->genre);
-													
+									if (debug)
+										printf("%%add|%s|%s|%s\n",
+													 idxData->vol_item->path, idxData->vol_item->name, 
+													 idxData->vol_item->genre);
+									
 									idxData->vol_files = idxData->vol_files->next;
 								}
 							else if (cmp > 0)
@@ -288,12 +336,13 @@ static Eina_Bool _idler(void* data)
 									rage_ipc_media_del(idxData->conn, idxData->db_item->path);
 									thumb_del(idxData->db_item->path);
 									++ idxData->deletes;
-													
-									printf("%%del|%s|%s|%s|%.0f|%d\n",
-												 idxData->db_item->path, idxData->db_item->name, 
-												 idxData->db_item->genre, 
-												 idxData->db_item->last_played, idxData->db_item->play_count);
-													
+									
+									if (debug)
+										printf("%%del|%s|%s|%s|%.0f|%d\n",
+													 idxData->db_item->path, idxData->db_item->name, 
+													 idxData->db_item->genre, 
+													 idxData->db_item->last_played, idxData->db_item->play_count);
+									
 									volume_item_free(idxData->db_item);
 									idxData->db_files = idxData->db_files->next;
 								}
@@ -301,90 +350,6 @@ static Eina_Bool _idler(void* data)
 				}
 		}
 	return EINA_TRUE;
-}
-
-/** generate the file list.
- */
-char* gen_file(char* vol_path)
-{
-	DIR* dir = 0;
-	struct dirent* de;
-	int done =0;
-	char buf[4096];
-	char* file = 0;
-	
-	while(!done)
-		{
-			if (!dirstack)
-				{
-					if (vol_path)
-						{
-							snprintf(cur_path, sizeof(cur_path), "%s", vol_path);
-						}
-					
-					dir = opendir(cur_path);
-					dirstack = eina_list_append(dirstack, dir);
-				}
-			
-			dir = eina_list_data_get(eina_list_last(dirstack));
-			
-			/* base case */
-			if (!dirstack) { done = 1; break; }
-			
-			de = readdir(dir);
-			if (de)
-				{
-					if (de->d_name[0] != '.')
-						{
-							/* link? */
-							char* link;
-							snprintf(buf, sizeof(buf), "%s/%s", cur_path, de->d_name);
-							
-							link = ecore_file_readlink(buf);
-							if (link) { free(link); }
-							else
-								{
-									if (ecore_file_is_dir(buf))
-										{
-											dir = opendir(buf);
-											if (dir)
-												{
-													dirstack = eina_list_append(dirstack, dir);
-													snprintf(cur_path, sizeof(cur_path), buf);
-												}
-											else
-												{
-													/* restore the original directory. */
-													dir = eina_list_data_get(eina_list_last(dirstack));
-												}
-										}
-									else
-										{
-											file = strdup(buf);
-											done = 1;
-										}
-								}
-						}
-				}
-			else
-				{
-					char* p;
-					closedir(dir);
-					dirstack = eina_list_remove(dirstack, dir);
-					
-					p = strrchr(cur_path, '/');
-					if (p) { *p = 0; }
-				}
-			
-			if (!dirstack)
-				{
-					/* we're done! */
-					done = 1;
-					break;
-				}
-		}
-	
-	return file;
 }
 
 /** delete the thumb eet associated with image we're moving/deleting.
@@ -415,37 +380,3 @@ void thumb_del(const char* filename)
 		}
 }
 
-/** setup the genre depending on the root directory.
- *  eg: movies => movies/<folder>/filename
- *      anime  => anime/<folder>/filename
- */
-void prefix_setup(char* dir_root)
-{
-	int idx = strlen(dir_root);
-	const char* last_dir_part;
-	
-	/* normalize the path to not be postfixed with a '/' */
-	--idx;
-	if (vol_root[idx] == '/') { dir_root[idx]='\0'; --idx; }
-	
-	last_dir_part = vol_root + idx;
-	/* find the next '/' starting from the back. */
-	while(last_dir_part != vol_root && (*last_dir_part) != '/')
-		{ --last_dir_part; }
-	if (*last_dir_part == '/') { ++last_dir_part; }
-	/* either at the beginning of the path, or somewhere in between. */
-	
-	/* now, we want to see if we have a magic prefixer... */
-	if (strncmp(last_dir_part, "anime", 5) == 0)
-		{
-			/* determine if we're dealing with anime... */
-			dir_prefix = "anime/";
-		}
-	else
-		{
-			if (strncmp(last_dir_part, "movies", 6) == 0)
-				{ dir_prefix = "movies/"; }
-		}
-	
-	if (dir_prefix) { printf("%s!\n", dir_prefix); }
-}

@@ -3,6 +3,8 @@
  *  Fri Feb 25 22:48:20 PST 2011
  */
 
+#ifndef _RAGE_IPC_H_
+#define _RAGE_IPC_H_
 #include <Ecore.h>
 #include <Ecore_Ipc.h>
 
@@ -51,3 +53,4 @@ void rage_ipc_media_path_query(Rage_Ipc* conn, const char* path,
 /*
 void rage_ipc_thumb_get(
 */
+#endif 

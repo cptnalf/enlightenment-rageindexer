@@ -6,19 +6,22 @@
 #include "volume.h"
 #include <string.h>
 #include "extensions.h"
-extern int debug;
 
-extern const char* vol_root;
-extern char* dir_prefix;
+static int debug;
+static const char* vol_root;
+static const char* translate;
+static Eina_List* dirstack =NULL;
+static char cur_path[4096];
+
+static char* dir_prefix;
 static Eina_List* items = 0;
 static unsigned long items_count = 0;
 
 static char* get_name(const char* path);
 static const char* get_genre(const char* path);
-static Volume_Item* volume_file_scan(const char* path);
-static int volume_item_compare(const void* one, const void* two);
 
-extern char* gen_file(char* vol_path);
+static char* gen_file(const char* vol_path);
+static void _set_dir_prefix(char* dir_root);
 
 static int _ext_comparer(const void* one, const void* two)
 {
@@ -28,12 +31,30 @@ static int _ext_comparer(const void* one, const void* two)
 	return strcasecmp(ptrOne->ext, ptrTwo->ext);
 }
 
-void volume_index(char* vol)
+void volume_init(const int n_debug, const char* n_vol_root, const char* n_translate)
+{
+	debug = n_debug;
+	vol_root = strdup(n_vol_root);
+	if (n_translate) 
+		{
+			translate = strdup(n_translate);
+		}
+	
+	_set_dir_prefix((char*)vol_root);
+}
+
+void volume_shutdown()
+{
+	free((char*)vol_root);
+	free((char*)translate);
+}
+
+void volume_index(const char* root, const char* tr)
 {
  	char* newfile = 0;
 	Volume_Item* item;
 	
-	newfile = gen_file(vol);
+	newfile = gen_file(vol_root);
 	while(newfile)
 		{
 			item = volume_file_scan(newfile);
@@ -51,7 +72,7 @@ void volume_index(char* vol)
 	items = eina_list_sort(items, items_count, volume_item_compare);
 }
 
-void volume_deindex(char* vol)
+void volume_deindex(const char* root)
 {
 	if(items)
 		{
@@ -72,7 +93,7 @@ const Eina_List* volume_items_get()
 	return items;
 }
 
-static Volume_Item* volume_file_scan(const char* path)
+Volume_Item* volume_file_scan(const char* path)
 {
 	Volume_Item* item =0;
 	char* ext = strrchr(path, '.');
@@ -101,24 +122,48 @@ static Volume_Item* volume_file_scan(const char* path)
 					switch (found_item->type)
 						{
 						case (VIDEO_EXT): { type = eina_stringshare_add("video"); break; }
-						case (PHOTO_EXT): { type = eina_stringshare_add("audio"); break; }
-						case (AUDIO_EXT): { type = eina_stringshare_add("photo"); break; }
+						case (PHOTO_EXT): { type = eina_stringshare_add("photo"); break; }
+						case (AUDIO_EXT): { type = eina_stringshare_add("audio"); break; }
 							
 						default: { type = NULL; break; }
 						};
 					
 					if (type)
 						{
-							item = volume_item_new(0, path, 0, 0, type);
+							char buf[1024];
+							
+							if (translate)
+								{
+									int vr_len = strlen(vol_root);
+									int tr_len = strlen(translate);
+									const char* fname_start = path + vr_len;
+									const char* tmp = translate + (tr_len -1);
+									
+									if (*tmp != '/')
+										{
+											/* need to keep the '/' from the path. */
+											if (*fname_start != '/') { ++fname_start; }
+										}
+									else
+										{
+											/* i don't need a '/'. */
+											if (*fname_start == '/') { ++fname_start; }
+										}
+									
+									snprintf(buf, sizeof(buf), "%s%s", translate, fname_start);
+								}
+							else { snprintf(buf, sizeof(buf), "%s", path); }
+							
+							item = volume_item_new(0, buf, 0, 0, type);
 							item->name = get_name(path);
 							item->genre = get_genre(path);
+							item->created = ecore_file_mod_time(path);
 						}
 				}
 		}
 	
 	return item;
 }
-
 
 static char* get_name(const char* path)
 {
@@ -291,11 +336,130 @@ void volume_item_free(Volume_Item* item)
 
 /** compares two volume items,
  */
-static int volume_item_compare(const void* one, const void* two)
+int volume_item_compare(const void* one, const void* two)
 {
 	const Volume_Item* v1;
 	const Volume_Item* v2;
 	v1 = one;
 	v2 = two;
 	return strcmp(v1->path, v2->path);
+}
+
+/** setup the genre depending on the root directory.
+ *  eg: movies => movies/<folder>/filename
+ *      anime  => anime/<folder>/filename
+ */
+static void _set_dir_prefix(char* dir_root)
+{
+	int idx = strlen(dir_root);
+	const char* last_dir_part;
+	
+	/* normalize the path to not be postfixed with a '/' */
+	--idx;
+	if (vol_root[idx] == '/') { dir_root[idx]='\0'; --idx; }
+	
+	last_dir_part = vol_root + idx;
+	/* find the next '/' starting from the back. */
+	while(last_dir_part != vol_root && (*last_dir_part) != '/')
+		{ --last_dir_part; }
+	if (*last_dir_part == '/') { ++last_dir_part; }
+	/* either at the beginning of the path, or somewhere in between. */
+	
+	/* now, we want to see if we have a magic prefixer... */
+	if (strncmp(last_dir_part, "anime", 5) == 0)
+		{
+			/* determine if we're dealing with anime... */
+			dir_prefix = "anime/";
+		}
+	else
+		{
+			if (strncmp(last_dir_part, "movies", 6) == 0)
+				{ dir_prefix = "movies/"; }
+		}
+	
+	if (dir_prefix) { printf("%s!\n", dir_prefix); }
+}
+
+/** generate the file list.
+ */
+static char* gen_file(const char* vol_path)
+{
+	DIR* dir = 0;
+	struct dirent* de;
+	int done =0;
+	char buf[4096];
+	char* file = 0;
+	
+	while(!done)
+		{
+			if (!dirstack)
+				{
+					if (vol_path)
+						{
+							snprintf(cur_path, sizeof(cur_path), "%s", vol_path);
+						}
+					
+					dir = opendir(cur_path);
+					dirstack = eina_list_append(dirstack, dir);
+				}
+			
+			dir = eina_list_data_get(eina_list_last(dirstack));
+			
+			/* base case */
+			if (!dirstack) { done = 1; break; }
+			
+			de = readdir(dir);
+			if (de)
+				{
+					if (de->d_name[0] != '.')
+						{
+							/* link? */
+							char* link;
+							snprintf(buf, sizeof(buf), "%s/%s", cur_path, de->d_name);
+							
+							link = ecore_file_readlink(buf);
+							if (link) { free(link); }
+							else
+								{
+									if (ecore_file_is_dir(buf))
+										{
+											dir = opendir(buf);
+											if (dir)
+												{
+													dirstack = eina_list_append(dirstack, dir);
+													snprintf(cur_path, sizeof(cur_path), buf);
+												}
+											else
+												{
+													/* restore the original directory. */
+													dir = eina_list_data_get(eina_list_last(dirstack));
+												}
+										}
+									else
+										{
+											file = strdup(buf);
+											done = 1;
+										}
+								}
+						}
+				}
+			else
+				{
+					char* p;
+					closedir(dir);
+					dirstack = eina_list_remove(dirstack, dir);
+					
+					p = strrchr(cur_path, '/');
+					if (p) { *p = 0; }
+				}
+			
+			if (!dirstack)
+				{
+					/* we're done! */
+					done = 1;
+					break;
+				}
+		}
+	
+	return file;
 }

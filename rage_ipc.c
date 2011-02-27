@@ -8,6 +8,7 @@
 #define __UNUSED__
 
 static Eina_List* _nodes = NULL;
+static int debug = 0;
 
 static int _version = 10; /* current proto version */
 static int _version_magic1 = 0x14f8ec67; /* magic number for version check */
@@ -22,8 +23,9 @@ static Eina_Bool _client_cb_add(void *data __UNUSED__, int type __UNUSED__, void
 static Eina_Bool _client_cb_del(void *data __UNUSED__, int type __UNUSED__, void *event);
 static Eina_Bool _client_cb_data(void *data __UNUSED__, int type __UNUSED__, void *event);
 
-int rage_ipc_init()
+int rage_ipc_init(int n_debug)
 {
+	debug = n_debug;
 	ecore_event_handler_add(ECORE_IPC_EVENT_SERVER_ADD, _client_cb_add, NULL);
 	ecore_event_handler_add(ECORE_IPC_EVENT_SERVER_DEL,	_client_cb_del, NULL);
 	ecore_event_handler_add(ECORE_IPC_EVENT_SERVER_DATA, _client_cb_data, NULL) ;
@@ -98,13 +100,16 @@ void rage_ipc_media_add(Rage_Ipc* conn, char* path, char* name,
 	strncpy(item.type, type, sizeof(item.type));
 	item.created_date = created_date;
 	
-	ecore_ipc_server_send(conn->server, OP_MEDIA_ADD, 0, 0, 0, 0,
+	if (debug > 0) { printf("add %s\n", path); }
+	
+	ecore_ipc_server_send(conn->server, OP_MEDIA_PUT, 0, 0, 0, 0,
 												&item, sizeof(item));
 }
 
 void rage_ipc_media_del(Rage_Ipc* conn, const char* path)
 {
-	ecore_ipc_server_send(conn->server, OP_MEDIA_DEL, 0, 0, 0, 0,
+	if (debug > 0) { printf("delete %s\n", path); }
+	ecore_ipc_server_send(conn->server, OP_MEDIA_DELETE, 0, 0, 0, 0,
 												path, strlen(path) + 1);
 }
 
@@ -133,6 +138,7 @@ void rage_ipc_genre_list(Rage_Ipc* conn, const char* genre,
 												 Eina_Bool (*callback)(Genre_Result* result, void* data),
 												 void* data)
 {
+	if (debug > 0) { printf("list genres\n"); }
 	conn->genre_list_callback = callback;
 	conn->genre_list_data = data;
 	ecore_ipc_server_send(conn->server, OP_GENRES_GET, 0, 0, 0, 0, 
@@ -143,6 +149,8 @@ void rage_ipc_media_path_query(Rage_Ipc* conn, const char* path,
 															 Eina_Bool (*callback)(Query_Result* result, void* data),
 															 void* data)
 {
+	if (debug > 0) { printf("list files for path %s\n", path); }
+		
 	conn->_path_query_callback = callback;
 	conn->_path_query_data = data;
 	
@@ -241,7 +249,7 @@ static Eina_Bool _client_cb_data(void *data __UNUSED__, int type __UNUSED__, voi
 			
 		case OP_USER_IDENT:
 			{
-				printf("ident?\n");
+				if (debug > 1) { printf("ident?\n"); }
 				if ((e->data) && (e->size > 1) && (((char *)e->data)[e->size - 1] == 0))
 					{
 						if (nd->ident) free(nd->ident);
@@ -253,10 +261,10 @@ static Eina_Bool _client_cb_data(void *data __UNUSED__, int type __UNUSED__, voi
 			
 			
 		case OP_MEDIA_ADD:
-			printf("Got media add!\n");
+			if (debug > 0) { printf("Got media add!\n"); }
 			break;
 		case OP_MEDIA_DEL:
-			printf("got media delete!\n");
+			if (debug > 0) { printf("got media delete!\n"); }
 			break;
 		case (OP_MEDIA_LIST):
 			{
