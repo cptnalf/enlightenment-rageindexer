@@ -93,7 +93,8 @@ Eina_Bool rage_ipc_ready(Rage_Ipc* conn)
 void rage_ipc_media_add(Rage_Ipc* conn, char* path, char* name, 
 												const char* genre, const char* type, time_t created_date)
 {
-	struct _Rage_Ipc_VolItem item;
+	Rage_Ipc_VolItem item;
+	memset(&item, 0, sizeof(Rage_Ipc_VolItem));
 	
 	strncpy(item.path, path, sizeof(item.path));
 	strncpy(item.name, name, sizeof(item.name));
@@ -101,7 +102,7 @@ void rage_ipc_media_add(Rage_Ipc* conn, char* path, char* name,
 	strncpy(item.type, type, sizeof(item.type));
 	item.created_date = created_date;
 	
-	if (debug > 0) { printf("add %s\n", path); }
+	if (debug > 0) { printf("add %s:%s\n", item.name, item.path); }
 	
 	ecore_ipc_server_send(conn->server, OP_MEDIA_PUT, 0, 0, 0, 0,
 												&item, sizeof(item));

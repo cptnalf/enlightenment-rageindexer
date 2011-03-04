@@ -80,7 +80,7 @@ static void monitor_cb(void* data, Ecore_File_Monitor* em,
 				if (vi)
 					{
 						rage_ipc_media_add(conn, 
-															 vi->path, vi->path, vi->genre, vi->type, vi->created);
+															 vi->path, vi->name, vi->genre, vi->type, vi->created);
 						volume_item_free(vi);
 					}
 				
@@ -98,8 +98,14 @@ static void monitor_cb(void* data, Ecore_File_Monitor* em,
 			
 		case (ECORE_FILE_EVENT_DELETED_FILE):
 			{
-				rage_ipc_media_del(conn, path);
-				break;
+			  Volume_Item* vi = volume_file_scan(path);
+			  
+			  if (vi)
+			    {
+			      rage_ipc_media_del(conn, vi->path);
+			      volume_item_free(vi);
+			    }
+			  break;
 			}
 		case (ECORE_FILE_EVENT_DELETED_DIRECTORY):
 			{

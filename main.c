@@ -260,8 +260,10 @@ static Eina_Bool _idler(void* data)
 							
 							created = time(0);
 							rage_ipc_media_add(idxData->conn, 
-																 idxData->vol_item->path, idxData->vol_item->name, 
-																 idxData->vol_item->genre, idxData->vol_item->type,
+																 idxData->vol_item->path, 
+																 idxData->vol_item->name, 
+																 idxData->vol_item->genre, 
+																 idxData->vol_item->type,
 																 created);
 							++ idxData->inserts;
 							
@@ -315,8 +317,10 @@ static Eina_Bool _idler(void* data)
 									 */
 									created = time(0);
 									rage_ipc_media_add(idxData->conn, 
-																		 idxData->vol_item->path, idxData->vol_item->name, 
-																		 idxData->vol_item->genre, idxData->vol_item->type,
+																		 idxData->vol_item->path, 
+																		 idxData->vol_item->name, 
+																		 idxData->vol_item->genre, 
+																		 idxData->vol_item->type,
 																		 created);
 									++ idxData->inserts;
 									
